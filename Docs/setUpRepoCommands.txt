@@ -1,0 +1,68 @@
+VENV_NAME="scool"   
+
+        
+        # create repo on gitHub and clone
+        #
+$ git clone git@github.com:manrussell/nmigen_scool.git
+$ cd nmigen_scool/
+$ mkdir gateware
+$ cd gateware
+
+        # create the requirements list for the venv
+        # Ctrl-D to save and exit
+        #
+$ cat > requirements.txt
+git+https://github.com/nmigen/nmigen.git
+
+        # create script to create the venv and install the requirements
+        #
+$ cat > initialise-python-environment.sh
+#!/bin/bash
+python3 -m venv scool
+. scool/bin/activate
+pip3 install -r requirements.txt
+
+        # back to the top layer again
+        #
+$ cd ..
+
+        # create .gitignore for the repo
+        # ?? what about .vcd and .gtkw files ...hmmm
+$ cat > .gitignore
+**/__pycache__
+gateware/scool
+
+        # make a vscode folder and copy in some settings ...
+        #
+$ mkdir .vscode
+$ cd .vscode
+$ cat > settings.json
+{
+"python.pythonPath": "scool/bin/python3"
+}
+
+        # echo now add everything to your repo 
+        #
+$ git add .
+
+        # change folder down again
+        #
+$ cd gateware
+
+        # create the venv by running script
+        #
+$ source initialise-python-environment.sh 
+
+        # activate the venv
+        #
+$ source scool/bin/activate
+
+        # run script to generate the .vcd and .gtk files
+        #
+$ python3 adder.py 
+
+        # view results in gtkwave
+        #
+$ gtkwave adderTest.gtkw &
+$ history 30
+
