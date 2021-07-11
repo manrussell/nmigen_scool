@@ -1,3 +1,4 @@
 {
-    "python.pythonPath": "scool/bin/python3"
+    "python.pythonPath": "scool/bin/python3",
+    "[python]": { "editor.rulers": [79] }
 }

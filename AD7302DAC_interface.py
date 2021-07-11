@@ -1,11 +1,46 @@
-# based on video from  Robert Baruch
-# https://www.youtube.com/watch?v=AQOXoKQhG3I&t=2613s
-
-# GENERAL DESCRIPTION: The AD7302 is a dual, 8-bit voltage out DAC that operates 
-# from a single +2.7 V to +5.5 V supply. Its on-chip precisionoutput buffers 
-# allow the DAC outputs to swing rail to rail. TheAD7302 has a parallel 
-# microprocessor and DSP-compatibleinterface with high speed registers and 
+###############################################################################
+# GENERAL DESCRIPTION:
+# This module will interface between the output of the JT51 synth and a a DAC i
+# have lying around at home
+#
+###############################################################################
+# AD7302 DAC:
+# The AD7302 is a dual, 8-bit voltage out DAC that operates
+# from a single +2.7 V to +5.5 V supply. Its on-chip precision output buffers
+# allow the DAC outputs to swing rail to rail. TheAD7302 has a parallel
+# microprocessor and DSP-compatibleinterface with high speed registers and
 # double buffered interfacelogic.
+### AD7302 DAC:
+# Parallel Data Inputs. Eight-bit data is loaded to the input register
+# of the AD7302 under the control of CS and WR
+### CONTROL LOGIC:
+# On the rising edge of the WR signal, the values on pins D7-D0 will be
+# latched into the Input register. When the signal LDAC is low, the data in
+# the Input register is transferred to the DAC register and a new
+# D/A conversion is started.
+# ,max clock freq of DAC is ...
+### Pins (Full list):
+# DB0-DB7,  8 -bit parallel data input
+# DACAB,    # DAC A(active high) or B (A=left, R=write)
+# WR,       write enable, (active high)
+# LDAC,     Load (both)DAC's, (active high), asynchronous
+# PD,       Power Down, (active high)
+# CS,       Chip Select, (active high)
+# CLR,      Clear, (active high), asynchronous
+#
+###############################################################################
+# JT51 SYNTH:
+# outs from Ym2151/JT51 are prefixed i_ for input
+# JT51 output data rate of 55kHz, stereo, 16 bits per channel.
+### Pins (Full list):
+#   o_ct1       General purpose output, configurable through MMR
+#   o_ct2       General purpose output, configurable through MMR
+#   o_irq_n     Active (low) when timer overflow. Only if programmed to.
+#   o_p1        clk/2. This is the clock at which sound gets synthesised
+#   o_sample    Indicates that new output data is ready.
+#   o_xleft     Audio output with full 16 bit resolution. Signed
+#   o_xright
+###############################################################################
 
 from typing import List
 
@@ -16,75 +51,96 @@ from nmigen.sim import Simulator, Delay
 
 class AD7302(Elaboratable):
     def __init__(self):
-        # ins from Ym2151
-        # 01(clock for D/A), 
-        # SO, Data serial out
-        # SH2, sample and hold
-        # SH1, 
-        # IC(initial clear)
-        # VDD, 
-        # VSS, Data ground
+        # JT51
+        self.i_xL           = Signal(16) # Audio out 16 bit resolution. Signed.
+        self.i_xR           = Signal(16) # Audio out 16 bit resolution. Signed.
+        self.i_sample_valid = Signal(1)  # Indicates new output data is ready.
+        self.i_p1           = Signal(1)  # clock from JT51
 
-        self.si = Signal(8)
-        # self.clk = Signal(8)
-        # self. = Signal(8)
-
-
-
-
-        # outs/inputs to AD7302 DAC
-        # Parallel Data Inputs. Eight-bit data is loaded to the input register 
-        # of the AD7302 under the control of CS and WR
-        self.outDB0 = Signal(1)
-        self.outDB1 = Signal(1)
-        self.outDB2 = Signal(1)
-        self.outDB3 = Signal(1)
-        self.outDB4 = Signal(1)
-        self.outDB5 = Signal(1)
-        self.outDB6 = Signal(1)
-        self.outDB7 = Signal(1)
-        
+        # AD7302 DAC
+        # Parallel Data.
+        self.o_DB0 = Signal(1)
+        self.o_DB1 = Signal(1)
+        self.o_DB2 = Signal(1)
+        self.o_DB3 = Signal(1)
+        self.o_DB4 = Signal(1)
+        self.o_DB5 = Signal(1)
+        self.o_DB6 = Signal(1)
+        self.o_DB7 = Signal(1)
         # control logic
-        # Data is loaded to the registers on the rising edge of CS(active high)
-        # or WR(active high) and the A/B pin selects either DAC A(active high) 
-        # or DAC B.
-        # cs = chip select
-        # wr = write
-        # self.outDACAB = Signal(1)
-        # self.outWR = Signal(1)
-        # self.outCS = Signal(1)
-
-        # Both DACs can be simultaneously updated using the asynchronous 
-        # LDAC(active high) input and can be cleared by using the 
-        # asynchronous CLR(active high) input.
-        # self.outLDAC = Signal(1)
-        # self.outCLR = Signal(1)
-
-        # low power mode(active high)
-        # self.outPD = Signal(1)
-
+        self.o_DACAB    = Signal(1) # DAC A or B (A=left, R=write)
+        self.o_WR       = Signal(1)
+        self.o_LDAC     = Signal(1)
+        # don't use fpga pins to do this, pull to ground (electrically) on PCB
+        # self.o_PD     = Signal(1)
+        # self.o_CS     = Signal(1)
+        # self.o_CLR    = Signal(1)
 
     # python type annotation .. -> Module:
     def elaborate(self, platform: Platform) -> Module:
         m = Module()
 
-        # can i for loop this ?
+        # FSM which writes the data from the JT51 to the AD7302 DAC
+        with m.FSM(name="transmit_fsm"):
 
-        m.d.comb += self.outDB0.eq(self.si[0])
-        m.d.comb += self.outDB1.eq(self.si[1])
-        m.d.comb += self.outDB2.eq(self.si[2])
-        m.d.comb += self.outDB3.eq(self.si[3])
-        m.d.comb += self.outDB4.eq(self.si[4])
-        m.d.comb += self.outDB5.eq(self.si[5])
-        m.d.comb += self.outDB6.eq(self.si[6])
-        m.d.comb += self.outDB7.eq(self.si[7])
+            with m.State("READ_A"): # idle state
+                m.d.comb += self.o_WR.eq(0)
+                m.d.comb += self.o_LDAC.eq(1)
+                m.d.comb += self.o_DACAB.eq(1)
+
+                with m.If(self.i_sample_valid):
+                    # DAC_A == left chaneel audio
+                    m.d.comb += self.o_DB0.eq(self.i_xL[0])
+                    m.d.comb += self.o_DB1.eq(self.i_xL[1])
+                    m.d.comb += self.o_DB2.eq(self.i_xL[2])
+                    m.d.comb += self.o_DB3.eq(self.i_xL[3])
+                    m.d.comb += self.o_DB4.eq(self.i_xL[4])
+                    m.d.comb += self.o_DB5.eq(self.i_xL[5])
+                    m.d.comb += self.o_DB6.eq(self.i_xL[6])
+                    m.d.comb += self.o_DB7.eq(self.i_xL[7])
+                    m.next = "WRITE_A"
+
+            with m.State("WRITE_A"):
+                # latch registers
+                m.d.comb += self.o_WR.eq(1)
+                m.next = "CHANGE_AB"
+
+            with m.State("CHANGE_AB"):
+                # write to DAC_B
+                m.d.comb += self.o_DACAB.eq(0)
+                m.next = "READ_B"
+
+            with m.State("READ_B"):
+                m.d.comb += self.o_DB0.eq(self.i_xR[0])
+                m.d.comb += self.o_DB1.eq(self.i_xR[1])
+                m.d.comb += self.o_DB2.eq(self.i_xR[2])
+                m.d.comb += self.o_DB3.eq(self.i_xR[3])
+                m.d.comb += self.o_DB4.eq(self.i_xR[4])
+                m.d.comb += self.o_DB5.eq(self.i_xR[5])
+                m.d.comb += self.o_DB6.eq(self.i_xR[6])
+                m.d.comb += self.o_DB7.eq(self.i_xR[7])
+                m.next = "WRITE_B"
+
+            with m.State("WRITE_B"):
+                # latch registers
+                m.d.comb += self.o_WR.eq(1)
+                m.next = "DA_CONVERT"
+
+            with m.State("DA_CONVERT"):
+                # send data from DAC registers to be converted by the DAC
+                m.d.comb += self.o_LDAC.eq(0)
+                m.next = "READ_A"
 
         return m
 
 
     # return a list of public signals
     def ports(self) -> List[Signal]:
-        return[self.si, self.outDB0, self.outDB1, self.outDB2, self.outDB3, self.outDB4, self.outDB5, self.outDB6, self.outDB7]
+        return[self.i_xL, self.i_xR, self.i_p1, self.i_sample_valid, \
+        self.o_DB0, self.o_DB1, self.o_DB2, self.o_DB3, self.o_DB4,  \
+        self.o_DB5, self.o_DB6, self.o_DB7, self.o_DACAB, self.o_WR, \
+        self.o_LDAC]
+
 
 
 if __name__ == "__main__":
@@ -99,11 +155,11 @@ if __name__ == "__main__":
     # this version does not give it a name
     # m.submodules.adder += Adder()
 
-
     #
     # for simulator remove the main_runner() as we are not outputting to ..
-    #
-    # put args into parser, add module, add ports we are interested in outputting to a trace if doing simulation or yo-sis if doing formal verification
+    # put args into parser, add module, add ports we are interested in 
+    # outputting to a trace if doing simulation or yo-sis if doing formal 
+    # verification
     # main_runner(parser, args, m, ports=[] + adder.ports())
 
     #
@@ -111,21 +167,39 @@ if __name__ == "__main__":
     # for simulating
     #
 
-    # def 
+    # these lines are important because they are our input lines and if we 
+    # want to trace them we need to init them here
+    x = Signal(16)
+    icIn = Signal(1)
 
-
-    # these lines are important because they are our input lines and if we want to trace them 
-    # we need to init them here
-    x = Signal(8)
-
-    m.d.comb += AD7302DAC.si.eq(x)
+    m.d.comb += AD7302DAC.i_xL.eq(x)
+    m.d.comb += AD7302DAC.i_xR.eq(~x)
+    m.d.comb += AD7302DAC.i_sample_valid.eq(icIn)
 
     sim = Simulator(m)
 
     # a generator, so requires a yield
     def count_process():
-        yield x.eq(0x00)
         # no clock here so use a Delay()
+            #####
+        yield icIn.eq(0)
+        yield x.eq(0x00)
+        yield Delay(1e-6)
+        yield x.eq(0x05)
+        yield Delay(1e-6)
+        yield x.eq(0x50)
+        yield Delay(1e-6)
+            #####
+        yield icIn.eq(1)
+        yield x.eq(0x00)
+        yield Delay(1e-6)
+        yield x.eq(0x05)
+        yield Delay(1e-6)
+        yield x.eq(0x50)
+        yield Delay(1e-6)
+            #####
+        yield icIn.eq(0)
+        yield x.eq(0x00)
         yield Delay(1e-6)
         yield x.eq(0x05)
         yield Delay(1e-6)
@@ -134,6 +208,6 @@ if __name__ == "__main__":
 
 
     sim.add_process(count_process)
-    # creates files which you open with gtkwave countTest.vcd 
+    # creates files which you open with gtkwave countTest.vcd
     with sim.write_vcd("AD7302DAC.vcd", "AD7302DAC.gtkw", traces=[x] + AD7302DAC.ports()):
         sim.run()
