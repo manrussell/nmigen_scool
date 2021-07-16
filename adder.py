@@ -7,6 +7,7 @@ from nmigen import *
 from nmigen.build import Platform
 from nmigen.cli import main_parser
 from nmigen.sim import Simulator, Delay
+from nmigen.asserts import Assert
 
 class Adder(Elaboratable):
     def __init__(self):
@@ -43,7 +44,24 @@ if __name__ == "__main__":
     # this version does not give it a name
     # m.submodules.adder += Adder()
 
+    # Formal verification, see "Building a 6800 CPU on an FPGA (part 2)" 15/20 mins
+    # Assert need .sby file and
+    # you would run like 
+    #  python3 adder.py generate -t il > toplevel.il
+    #  sby -f adder.sby
+    # bmc, bounded model checking
+    # Assert, notice that the inputs are truncated to 8 bits, else nmigen will
+    # try and make it 9 bits and the assert will fail because of the equality sign
+    m.d.comb += Assert(adder.out == (adder.x + adder.y)[:8])
 
+    # Yosis will 'cover' this case
+    m.d.comb += Cover(adder.out == 0xFF)
+    # note use of bitwise and parenthethese 
+    m.d.comb += Cover((adder.out == 0xFF) & (adder.x == 0xFE))
+    
+    m.d.comb += Assume(adder.x == (adder.y << 1))
+    m.d.comb += Cover((adder.out > 0x00) & (adder.out < 0x40))
+    
     #
     # for simulator remove the main_runner() as we are not outputting to ..
     #
