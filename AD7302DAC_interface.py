@@ -20,13 +20,13 @@
 # D/A conversion is started.
 # ,max clock freq of DAC is ...
 ### Pins (Full list):
-# DB0-DB7,  8 -bit parallel data input
+# DB0-DB7,  8-bit parallel data input
 # DACAB,    # DAC A(active high) or B (A=left, R=write)
 # WR,       write enable, (active high)
 # LDAC,     Load (both)DAC's, (active high), asynchronous
-# PD,       Power Down, (active high)
-# CS,       Chip Select, (active high)
-# CLR,      Clear, (active high), asynchronous
+# PD,       Power Down, (active high)...pull to ground (electrically) on PCB
+# CS,       Chip Select, (active high)...pull to ground (electrically) on PCB
+# CLR,      Clear, (active high), asynchronous...pull to ground (electrically) on PCB
 #
 ###############################################################################
 # JT51 SYNTH:
@@ -71,10 +71,6 @@ class AD7302(Elaboratable):
         self.o_DACAB    = Signal(1) # DAC A or B (A=left, R=write)
         self.o_WR       = Signal(1)
         self.o_LDAC     = Signal(1)
-        # don't use fpga pins to do this, pull to ground (electrically) on PCB
-        # self.o_PD     = Signal(1)
-        # self.o_CS     = Signal(1)
-        # self.o_CLR    = Signal(1)
 
     # python type annotation .. -> Module:
     def elaborate(self, platform: Platform) -> Module:
@@ -84,51 +80,51 @@ class AD7302(Elaboratable):
         with m.FSM(name="transmit_fsm"):
 
             with m.State("READ_A"): # idle state
-                m.d.comb += self.o_WR.eq(0)
-                m.d.comb += self.o_LDAC.eq(1)
-                m.d.comb += self.o_DACAB.eq(1)
+                m.d.sync += self.o_WR.eq(0)
+                m.d.sync += self.o_LDAC.eq(1)
+                m.d.sync += self.o_DACAB.eq(1)
 
                 with m.If(self.i_sample_valid):
                     # DAC_A == left chaneel audio
-                    m.d.comb += self.o_DB0.eq(self.i_xL[0])
-                    m.d.comb += self.o_DB1.eq(self.i_xL[1])
-                    m.d.comb += self.o_DB2.eq(self.i_xL[2])
-                    m.d.comb += self.o_DB3.eq(self.i_xL[3])
-                    m.d.comb += self.o_DB4.eq(self.i_xL[4])
-                    m.d.comb += self.o_DB5.eq(self.i_xL[5])
-                    m.d.comb += self.o_DB6.eq(self.i_xL[6])
-                    m.d.comb += self.o_DB7.eq(self.i_xL[7])
+                    m.d.sync += self.o_DB0.eq(self.i_xL[0])
+                    m.d.sync += self.o_DB1.eq(self.i_xL[1])
+                    m.d.sync += self.o_DB2.eq(self.i_xL[2])
+                    m.d.sync += self.o_DB3.eq(self.i_xL[3])
+                    m.d.sync += self.o_DB4.eq(self.i_xL[4])
+                    m.d.sync += self.o_DB5.eq(self.i_xL[5])
+                    m.d.sync += self.o_DB6.eq(self.i_xL[6])
+                    m.d.sync += self.o_DB7.eq(self.i_xL[7])
                     m.next = "WRITE_A"
 
             with m.State("WRITE_A"):
                 # latch registers
-                m.d.comb += self.o_WR.eq(1)
+                m.d.sync += self.o_WR.eq(1)
                 m.next = "CHANGE_AB"
 
             with m.State("CHANGE_AB"):
                 # write to DAC_B
-                m.d.comb += self.o_DACAB.eq(0)
+                m.d.sync += self.o_DACAB.eq(0)
                 m.next = "READ_B"
 
             with m.State("READ_B"):
-                m.d.comb += self.o_DB0.eq(self.i_xR[0])
-                m.d.comb += self.o_DB1.eq(self.i_xR[1])
-                m.d.comb += self.o_DB2.eq(self.i_xR[2])
-                m.d.comb += self.o_DB3.eq(self.i_xR[3])
-                m.d.comb += self.o_DB4.eq(self.i_xR[4])
-                m.d.comb += self.o_DB5.eq(self.i_xR[5])
-                m.d.comb += self.o_DB6.eq(self.i_xR[6])
-                m.d.comb += self.o_DB7.eq(self.i_xR[7])
+                m.d.sync += self.o_DB0.eq(self.i_xR[0])
+                m.d.sync += self.o_DB1.eq(self.i_xR[1])
+                m.d.sync += self.o_DB2.eq(self.i_xR[2])
+                m.d.sync += self.o_DB3.eq(self.i_xR[3])
+                m.d.sync += self.o_DB4.eq(self.i_xR[4])
+                m.d.sync += self.o_DB5.eq(self.i_xR[5])
+                m.d.sync += self.o_DB6.eq(self.i_xR[6])
+                m.d.sync += self.o_DB7.eq(self.i_xR[7])
                 m.next = "WRITE_B"
 
             with m.State("WRITE_B"):
                 # latch registers
-                m.d.comb += self.o_WR.eq(1)
+                m.d.sync += self.o_WR.eq(1)
                 m.next = "DA_CONVERT"
 
             with m.State("DA_CONVERT"):
                 # send data from DAC registers to be converted by the DAC
-                m.d.comb += self.o_LDAC.eq(0)
+                m.d.sync += self.o_LDAC.eq(0)
                 m.next = "READ_A"
 
         return m
@@ -172,42 +168,52 @@ if __name__ == "__main__":
     x = Signal(16)
     icIn = Signal(1)
 
-    m.d.comb += AD7302DAC.i_xL.eq(x)
-    m.d.comb += AD7302DAC.i_xR.eq(~x)
-    m.d.comb += AD7302DAC.i_sample_valid.eq(icIn)
+    m.d.sync += AD7302DAC.i_xL.eq(x)
+    m.d.sync += AD7302DAC.i_xR.eq(~x)
+    m.d.sync += AD7302DAC.i_sample_valid.eq(icIn)
 
     sim = Simulator(m)
+    sim.add_clock(1e-6)
 
     # a generator, so requires a yield
     def count_process():
-        # no clock here so use a Delay()
             #####
         yield icIn.eq(0)
         yield x.eq(0x00)
-        yield Delay(1e-6)
+        yield
         yield x.eq(0x05)
-        yield Delay(1e-6)
+        yield
         yield x.eq(0x50)
-        yield Delay(1e-6)
+        yield
             #####
         yield icIn.eq(1)
         yield x.eq(0x00)
-        yield Delay(1e-6)
-        yield x.eq(0x05)
-        yield Delay(1e-6)
-        yield x.eq(0x50)
-        yield Delay(1e-6)
-            #####
+        yield
         yield icIn.eq(0)
-        yield x.eq(0x00)
-        yield Delay(1e-6)
+        yield
         yield x.eq(0x05)
-        yield Delay(1e-6)
+        yield
         yield x.eq(0x50)
-        yield Delay(1e-6)
+        yield
+            #####
+        yield x.eq(0x00)
+        yield
+        yield x.eq(0x05)
+        yield
+        yield x.eq(0x50)
+        yield
+
+            #####
+        yield x.eq(0x00)
+        yield
+        yield x.eq(0x05)
+        yield
+        yield x.eq(0x50)
+        yield
 
 
-    sim.add_process(count_process)
+    sim.add_sync_process(count_process)
+    # sim.add_process(count_process)
     # creates files which you open with gtkwave countTest.vcd
     with sim.write_vcd("AD7302DAC.vcd", "AD7302DAC.gtkw", traces=[x] + AD7302DAC.ports()):
         sim.run()

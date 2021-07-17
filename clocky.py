@@ -73,6 +73,7 @@ if __name__ == "__main__":
         # and wait one clock period, 
         # the value of .eq(95) will occur just after the clock edge
         yield
+        yield
         yield value.eq(0)
         yield
         yield
