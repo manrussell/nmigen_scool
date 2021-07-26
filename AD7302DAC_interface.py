@@ -54,7 +54,7 @@ class AD7302(Elaboratable):
         # JT51
         self.i_xL           = Signal(16) # Audio out 16 bit resolution. Signed.
         self.i_xR           = Signal(16) # Audio out 16 bit resolution. Signed.
-        self.i_sample_valid = Signal(1)  # Indicates new output data is ready.
+        self.i_sample_valid = Signal(1)  # Indicates new output data is ready, 1 * clock pulse high.
         self.i_p1           = Signal(1)  # clock from JT51
 
         # AD7302 DAC
@@ -72,38 +72,66 @@ class AD7302(Elaboratable):
         self.o_WR       = Signal(1)
         self.o_LDAC     = Signal(1)
 
+
     # python type annotation .. -> Module:
     def elaborate(self, platform: Platform) -> Module:
         m = Module()
 
+
+        # i think this should init the state machine, but nmight be depreciated
+        # self.submodules.fsm = FSM(reset_state="IDLE")
+
+#TODO: How to use rising and failing clock edges??
+#
         # FSM which writes the data from the JT51 to the AD7302 DAC
         with m.FSM(name="transmit_fsm"):
 
             with m.State("READ_A"): # idle state
-                m.d.sync += self.o_WR.eq(0)
-                m.d.sync += self.o_LDAC.eq(1)
-                m.d.sync += self.o_DACAB.eq(1)
+                m.d.comb += self.o_WR.eq(0)
+                m.d.comb += self.o_LDAC.eq(0)
+                m.d.comb += self.o_DACAB.eq(1)
+
+                # DAC_A == left channel audio
+                # if m.d.comb seems to reset itself on the next clock
+                # by making it m.d.sync it latches the value -must add a register? 
+                m.d.sync += self.o_DB0.eq(self.i_xL[0])
+                m.d.sync += self.o_DB1.eq(self.i_xL[1])
+                m.d.sync += self.o_DB2.eq(self.i_xL[2])
+                m.d.sync += self.o_DB3.eq(self.i_xL[3])
+                m.d.sync += self.o_DB4.eq(self.i_xL[4])
+                m.d.sync += self.o_DB5.eq(self.i_xL[5])
+                m.d.sync += self.o_DB6.eq(self.i_xL[6])
+                m.d.sync += self.o_DB7.eq(self.i_xL[7])
 
                 with m.If(self.i_sample_valid):
-                    # DAC_A == left chaneel audio
-                    m.d.sync += self.o_DB0.eq(self.i_xL[0])
-                    m.d.sync += self.o_DB1.eq(self.i_xL[1])
-                    m.d.sync += self.o_DB2.eq(self.i_xL[2])
-                    m.d.sync += self.o_DB3.eq(self.i_xL[3])
-                    m.d.sync += self.o_DB4.eq(self.i_xL[4])
-                    m.d.sync += self.o_DB5.eq(self.i_xL[5])
-                    m.d.sync += self.o_DB6.eq(self.i_xL[6])
-                    m.d.sync += self.o_DB7.eq(self.i_xL[7])
+                    # this could work and you remove a state by sampling here
+                    # m.d.comb += self.o_WR.eq(1)
                     m.next = "WRITE_A"
 
             with m.State("WRITE_A"):
                 # latch registers
-                m.d.sync += self.o_WR.eq(1)
+                m.d.comb += self.o_WR.eq(1)
+
+                # hmmm if m.d.comb why do i have to stipulate this here? 
+                # it doesn't seem to hold the previous value from 'READ_A'
+                # instead it returns to zero
+                # m.d.sync += self.o_DB0.eq(self.i_xL[0])
+                # m.d.sync += self.o_DB1.eq(self.i_xL[1])
+                # m.d.sync += self.o_DB2.eq(self.i_xL[2])
+                # m.d.sync += self.o_DB3.eq(self.i_xL[3])
+                # m.d.sync += self.o_DB4.eq(self.i_xL[4])
+                # m.d.sync += self.o_DB5.eq(self.i_xL[5])
+                # m.d.sync += self.o_DB6.eq(self.i_xL[6])
+                # m.d.sync += self.o_DB7.eq(self.i_xL[7])
+                # same here
+                m.d.comb += self.o_DACAB.eq(1)
                 m.next = "CHANGE_AB"
 
-            with m.State("CHANGE_AB"):
+            with m.State("CHANGE_AB"):      # can i remove this state 
+                # stop writing to register - or ... is this necessary? does it sample on clock rising and that's it?
+                m.d.comb += self.o_WR.eq(0)
                 # write to DAC_B
-                m.d.sync += self.o_DACAB.eq(0)
+                m.d.comb += self.o_DACAB.eq(0)
                 m.next = "READ_B"
 
             with m.State("READ_B"):
@@ -119,12 +147,13 @@ class AD7302(Elaboratable):
 
             with m.State("WRITE_B"):
                 # latch registers
-                m.d.sync += self.o_WR.eq(1)
+                m.d.comb += self.o_WR.eq(1)
                 m.next = "DA_CONVERT"
 
             with m.State("DA_CONVERT"):
                 # send data from DAC registers to be converted by the DAC
-                m.d.sync += self.o_LDAC.eq(0)
+                m.d.comb += self.o_LDAC.eq(1)
+                m.d.comb += self.o_WR.eq(0)
                 m.next = "READ_A"
 
         return m
@@ -168,8 +197,8 @@ if __name__ == "__main__":
     x = Signal(16)
     icIn = Signal(1)
 
-    m.d.sync += AD7302DAC.i_xL.eq(x)
-    m.d.sync += AD7302DAC.i_xR.eq(~x)
+    m.d.comb += AD7302DAC.i_xL.eq(x)
+    m.d.comb += AD7302DAC.i_xR.eq(~x)
     m.d.sync += AD7302DAC.i_sample_valid.eq(icIn)
 
     sim = Simulator(m)
@@ -178,37 +207,54 @@ if __name__ == "__main__":
     # a generator, so requires a yield
     def count_process():
             #####
-        yield icIn.eq(0)
-        yield x.eq(0x00)
-        yield
-        yield x.eq(0x05)
-        yield
-        yield x.eq(0x50)
-        yield
-            #####
+        #set JT51 left and Right to values ready to send to DAC
+        yield x.eq(0xAA)
+        # send sample_valid signal, high for one clock pulse
         yield icIn.eq(1)
-        yield x.eq(0x00)
         yield
+        # release sample_valid, set low
         yield icIn.eq(0)
         yield
+        # go gadget go
+        yield
+        yield
+        yield
+        yield
+        yield
+        yield
+        yield
+        yield
+        
+        #set JT51 left and Right to values ready to send to DAC
         yield x.eq(0x05)
+        # send sample_valid signal, high for one clock pulse
+        yield icIn.eq(1)
         yield
-        yield x.eq(0x50)
+        # release sample_valid, set low
+        yield icIn.eq(0)
         yield
-            #####
-        yield x.eq(0x00)
+        # go gadget go
         yield
-        yield x.eq(0x05)
         yield
-        yield x.eq(0x50)
+        yield
+        yield
         yield
 
-            #####
-        yield x.eq(0x00)
+        #set JT51 left and Right to values ready to send to DAC
+        yield x.eq(0xFE)
+        # send sample_valid signal, high for one clock pulse
+        yield icIn.eq(1)
         yield
-        yield x.eq(0x05)
+        # release sample_valid, set low
+        yield icIn.eq(0)
         yield
-        yield x.eq(0x50)
+        # go gadget go
+        yield
+        yield
+        yield
+        yield
+        yield
+        yield
         yield
 
 
