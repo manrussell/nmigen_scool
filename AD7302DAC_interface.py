@@ -41,6 +41,30 @@
 #   o_xleft     Audio output with full 16 bit resolution. Signed
 #   o_xright
 ###############################################################################
+# state machine to update the DAC
+#
+# set A
+#
+# -CS electrically low
+#
+# write goes low
+#
+# write data + hold
+#
+# write goes high
+#
+# -cs goes high
+#
+# set B
+#
+# repeat above
+#
+# set LDAC low
+# tick
+# set LDAC high
+#
+#
+###############################################################################
 
 from typing import List
 
@@ -68,73 +92,49 @@ class AD7302(Elaboratable):
         self.o_DB6 = Signal(1)
         self.o_DB7 = Signal(1)
         # control logic
-        self.o_DACAB    = Signal(1) # DAC A or B (A=left, R=write)
-        self.o_WR       = Signal(1)
-        self.o_LDAC     = Signal(1)
+        self.o_DACAB    = Signal(1, reset=0) # DAC A or B (A=left, B=right), set default=A
+        self.o_WR       = Signal(1, reset=1) # default = high
+        self.o_LDAC     = Signal(1, reset=1) # default = high
 
 
     # python type annotation .. -> Module:
     def elaborate(self, platform: Platform) -> Module:
         m = Module()
 
-
-        # i think this should init the state machine, but nmight be depreciated
-        # self.submodules.fsm = FSM(reset_state="IDLE")
-
-#TODO: How to use rising and failing clock edges??
-#
+        #TODO: How to use rising and failing clock edges??
         # FSM which writes the data from the JT51 to the AD7302 DAC
-        with m.FSM(name="transmit_fsm"):
-
-            with m.State("READ_A"): # idle state
-                m.d.comb += self.o_WR.eq(0)
-                m.d.comb += self.o_LDAC.eq(0)
-                m.d.comb += self.o_DACAB.eq(1)
-
-                # DAC_A == left channel audio
-                # if m.d.comb seems to reset itself on the next clock
-                # by making it m.d.sync it latches the value -must add a register? 
-                m.d.sync += self.o_DB0.eq(self.i_xL[0])
-                m.d.sync += self.o_DB1.eq(self.i_xL[1])
-                m.d.sync += self.o_DB2.eq(self.i_xL[2])
-                m.d.sync += self.o_DB3.eq(self.i_xL[3])
-                m.d.sync += self.o_DB4.eq(self.i_xL[4])
-                m.d.sync += self.o_DB5.eq(self.i_xL[5])
-                m.d.sync += self.o_DB6.eq(self.i_xL[6])
-                m.d.sync += self.o_DB7.eq(self.i_xL[7])
+        with m.FSM(name="dac_update_fsm"):
+            with m.State("SET_A"): # idle state
+                m.d.sync += self.o_WR.eq(1)
+                m.d.comb += self.o_LDAC.eq(1)
+                m.d.sync += self.o_DACAB.eq(0)  # '0 == A'
 
                 with m.If(self.i_sample_valid):
-                    # this could work and you remove a state by sampling here
-                    # m.d.comb += self.o_WR.eq(1)
-                    m.next = "WRITE_A"
+                    m.d.sync += self.o_WR.eq(0)
+                    m.d.sync += self.o_DB0.eq(self.i_xL[0])
+                    m.d.sync += self.o_DB1.eq(self.i_xL[1])
+                    m.d.sync += self.o_DB2.eq(self.i_xL[2])
+                    m.d.sync += self.o_DB3.eq(self.i_xL[3])
+                    m.d.sync += self.o_DB4.eq(self.i_xL[4])
+                    m.d.sync += self.o_DB5.eq(self.i_xL[5])
+                    m.d.sync += self.o_DB6.eq(self.i_xL[6])
+                    m.d.sync += self.o_DB7.eq(self.i_xL[7])
+                    m.next = "UPDATE_DATA_BUS"
 
-            with m.State("WRITE_A"):
-                # latch registers
-                m.d.comb += self.o_WR.eq(1)
+            with m.State("UPDATE_DATA_BUS"):
+                m.d.sync += self.o_WR.eq(1)
+                m.next = "WRITE_HIGH"
 
-                # hmmm if m.d.comb why do i have to stipulate this here? 
-                # it doesn't seem to hold the previous value from 'READ_A'
-                # instead it returns to zero
-                # m.d.sync += self.o_DB0.eq(self.i_xL[0])
-                # m.d.sync += self.o_DB1.eq(self.i_xL[1])
-                # m.d.sync += self.o_DB2.eq(self.i_xL[2])
-                # m.d.sync += self.o_DB3.eq(self.i_xL[3])
-                # m.d.sync += self.o_DB4.eq(self.i_xL[4])
-                # m.d.sync += self.o_DB5.eq(self.i_xL[5])
-                # m.d.sync += self.o_DB6.eq(self.i_xL[6])
-                # m.d.sync += self.o_DB7.eq(self.i_xL[7])
-                # same here
-                m.d.comb += self.o_DACAB.eq(1)
-                m.next = "CHANGE_AB"
+            with m.State("WRITE_HIGH"):
+                with m.If(self.o_DACAB == 0):
+                    m.d.sync += self.o_DACAB.eq(1)  # '1 == B'
+                    m.next = "SET_B"
 
-            with m.State("CHANGE_AB"):      # can i remove this state 
-                # stop writing to register - or ... is this necessary? does it sample on clock rising and that's it?
-                m.d.comb += self.o_WR.eq(0)
-                # write to DAC_B
-                m.d.comb += self.o_DACAB.eq(0)
-                m.next = "READ_B"
+                with m.If(self.o_DACAB == 1):
+                    m.next = "LDAC_LOW"
 
-            with m.State("READ_B"):
+            with m.State("SET_B"):
+                # do i put here?? m.d.sync += self.o_DB0.eq(self.i_xR[0])
                 m.d.sync += self.o_DB0.eq(self.i_xR[0])
                 m.d.sync += self.o_DB1.eq(self.i_xR[1])
                 m.d.sync += self.o_DB2.eq(self.i_xR[2])
@@ -143,18 +143,12 @@ class AD7302(Elaboratable):
                 m.d.sync += self.o_DB5.eq(self.i_xR[5])
                 m.d.sync += self.o_DB6.eq(self.i_xR[6])
                 m.d.sync += self.o_DB7.eq(self.i_xR[7])
-                m.next = "WRITE_B"
-
-            with m.State("WRITE_B"):
-                # latch registers
-                m.d.comb += self.o_WR.eq(1)
-                m.next = "DA_CONVERT"
-
-            with m.State("DA_CONVERT"):
-                # send data from DAC registers to be converted by the DAC
-                m.d.comb += self.o_LDAC.eq(1)
-                m.d.comb += self.o_WR.eq(0)
-                m.next = "READ_A"
+                m.next = "UPDATE_DATA_BUS"
+            
+            with m.State("LDAC_LOW"):
+                m.d.comb += self.o_LDAC.eq(0)
+                m.d.sync += self.o_DACAB.eq(0)  # '0 == A'
+                m.next = "SET_A"
 
         return m
 
